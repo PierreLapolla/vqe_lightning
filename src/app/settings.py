@@ -12,18 +12,29 @@ class MoleculeFilesCfg(BaseModel):
     molecule_id: str = "LiH"
 
 
+class VQECommonCfg(BaseModel):
+    device_name: str = "lightning.qubit"
+    molecule: MoleculeFilesCfg = MoleculeFilesCfg()
+    lbfgs_max_iter: PositiveInt = 10
+
+
+class UCCSDCfg(BaseModel):
+    init_theta_scale: PositiveFloat = 0.01
+
+
 class AdaptCfg(BaseModel):
-    enabled: bool = True
     drain_pool: bool = True
     grad_tol: float = 3e-3
-    max_steps: PositiveInt = 50
+    max_steps: PositiveInt = 1
+    finite_diff_eps: PositiveFloat = 1e-3
+    pretrain_maxiter: PositiveInt = 30
 
 
 class VQECfg(BaseModel):
-    device_name: str = "lightning.qubit"
-    molecule: MoleculeFilesCfg = MoleculeFilesCfg()
+    algorithm: Literal["uccsd", "adapt"] = "adapt"
+    common: VQECommonCfg = VQECommonCfg()
+    uccsd: UCCSDCfg = UCCSDCfg()
     adapt: AdaptCfg = AdaptCfg()
-    lbfgs_max_iter: PositiveInt = 1
 
 
 class TrainCfg(BaseModel):
