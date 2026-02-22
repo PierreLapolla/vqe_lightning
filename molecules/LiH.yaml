@@ -1,0 +1,8 @@
+unit: angstrom
+charge: 0
+multiplicity: 1
+basis_name: sto-3g
+mapping: jordan_wigner
+method: dhf
+active_electrons: 2
+active_orbitals: 4

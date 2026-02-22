@@ -1,5 +1,5 @@
 from lightning.pytorch import Trainer
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, RichProgressBar
+from lightning.pytorch.callbacks import ModelCheckpoint, RichProgressBar
 from lightning.pytorch.loggers import WandbLogger
 from pedros import has_dep
 
@@ -9,23 +9,18 @@ from app.settings import AppSettings
 def get_trainer(settings: AppSettings) -> Trainer:
     callbacks = []
 
-    early_stopping = EarlyStopping(
-        monitor="val_loss",
-        patience=5,
-        mode="min",
-        verbose=settings.train.callback_verbose,
+    callbacks.append(
+        ModelCheckpoint(
+            monitor="train_loss",
+            mode="min",
+            save_top_k=1,
+            save_last=True,
+            every_n_train_steps=1,
+            save_on_train_epoch_end=False,
+            filename="vqe-{step:05d}-{train_loss:.6f}",
+            verbose=settings.train.callback_verbose,
+        )
     )
-    callbacks.append(early_stopping)
-
-    model_checkpoint = ModelCheckpoint(
-        monitor="val_loss",
-        mode="min",
-        save_top_k=1,
-        save_last=False,
-        filename="mnist-{epoch:02d}-{val_loss:.2f}",
-        verbose=settings.train.callback_verbose,
-    )
-    callbacks.append(model_checkpoint)
 
     if has_dep("rich"):
         callbacks.append(RichProgressBar())
@@ -46,4 +41,5 @@ def get_trainer(settings: AppSettings) -> Trainer:
         logger=trainer_logger,
         fast_dev_run=settings.train.fast_dev_run,
         enable_progress_bar=True,
+        log_every_n_steps=1,
     )

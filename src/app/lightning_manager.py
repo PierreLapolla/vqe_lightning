@@ -1,11 +1,11 @@
 from lightning import seed_everything
 from pedros import get_logger
 
-from app.data_module import DataModule
 from app.logging_config import configure_logging
-from app.mnist_module import MNISTModule
 from app.settings import get_settings
+from app.steps_data_module import StepsDataModule
 from app.trainer import get_trainer
+from app.vqe_module import VQEModule
 
 
 class LightningManager:
@@ -17,9 +17,11 @@ class LightningManager:
     def start_training(self) -> None:
         seed_everything(self.settings.seed, workers=True)
 
-        data_module = DataModule(self.settings)
-        model = MNISTModule(self.settings)
+        data_module = StepsDataModule(self.settings)
+        model = VQEModule(self.settings)
         trainer = get_trainer(self.settings)
 
         trainer.fit(model, data_module)
-        trainer.test(model, data_module)
+
+        energy = float(model().detach().cpu().item())
+        self.logger.info(f"Final energy: {energy:.10f}")

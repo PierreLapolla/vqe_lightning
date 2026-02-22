@@ -1,10 +1,9 @@
 ![Ruff](https://img.shields.io/badge/ruff-enabled-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-# Python App Template
+# ADAPT-VQE Lightning
 
-This project provides a starter structure and tooling for Python apps, aiming for a consistent and modern dev
-experience.
+A PyTorch Lightning + PennyLane project for training a variational quantum eigensolver (VQE) with Lightning backends, including configurable toy Hamiltonians, checkpointing, and optional Weights & Biases logging.
 
 ## Installation
 
