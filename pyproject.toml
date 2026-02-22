@@ -1,0 +1,37 @@
+[project]
+name = "app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Pierre Lapolla" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "lightning>=2.6.1",
+    "pedros>=0.12.2",
+    "pydantic-settings>=2.8.1",
+    "rich>=14.3.3",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
+    "wandb>=0.23.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.15.2",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --cov=. --cov-report=html"
+testpaths = ["tests"]
+pythonpath = ["src"]
