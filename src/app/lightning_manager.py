@@ -2,12 +2,12 @@ from lightning import seed_everything
 from lightning import LightningModule
 from pedros import get_logger
 
-from app.adapt_vqe_module import AdaptVQEModule
 from app.logging_config import configure_logging
 from app.settings import AppSettings, get_settings
 from app.steps_data_module import StepsDataModule
 from app.trainer import get_trainer
-from app.uccsd_vqe_module import UCCSDVQEModule
+from app.vqe.adapt_vqe_module import AdaptVQEModule
+from app.vqe.uccsd_vqe_module import UCCSDVQEModule
 
 
 class LightningManager:

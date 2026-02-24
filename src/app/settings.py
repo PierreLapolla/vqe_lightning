@@ -23,11 +23,15 @@ class UCCSDCfg(BaseModel):
 
 
 class AdaptCfg(BaseModel):
-    drain_pool: bool = True
-    grad_tol: float = 3e-3
-    max_steps: PositiveInt = 1
+    mode: Literal["standard", "k-adapt", "k-greedy"] = "standard"
+    k: PositiveInt = 1
+    drain_pool: bool = False
+    gradient_threshold: PositiveFloat = 1e-4
+    max_adapt_iterations: PositiveInt = 10
     finite_diff_eps: PositiveFloat = 1e-3
-    pretrain_maxiter: PositiveInt = 30
+    max_vqe_iter: PositiveInt = 500
+    optimizer_method: str = "cobyla"
+    excitation_level: Literal["s", "sd", "sdt"] = "sd"
 
 
 class VQECfg(BaseModel):
@@ -40,7 +44,7 @@ class VQECfg(BaseModel):
 class TrainCfg(BaseModel):
     force_cpu: bool = True
     max_epochs: PositiveInt = 1
-    steps_per_epoch: PositiveInt = 100
+    steps_per_epoch: PositiveInt = 20
     fast_dev_run: bool = False
     callback_verbose: bool = False
     learning_rate: PositiveFloat = 0.05

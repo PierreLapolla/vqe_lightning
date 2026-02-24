@@ -1,9 +1,9 @@
 #import "@preview/charged-ieee:0.1.4": ieee
 
 #show: ieee.with(
-  title: [ADAPT-VQE in PyTorch Lightning: A Reproducible LiH Baseline with PennyLane Lightning],
+  title: [ADAPT-VQE Lightning Pipeline: Inputs, Transformations, and Outputs],
   abstract: [
-    We present a lightweight implementation of the adaptive derivative-assembled pseudo-Trotter variational quantum eigensolver (ADAPT-VQE) built with PennyLane, the Lightning backend, and PyTorch Lightning. The repository targets reproducible experimentation on molecular electronic structure problems through explicit molecule specifications, deterministic training loops, and checkpointed optimization. As a first benchmark, we study lithium hydride (LiH) in STO-3G with Jordan-Wigner mapping and an active space of two electrons in four orbitals. The current implementation combines gradient-based ADAPT operator selection with L-BFGS-B pre-optimization and torch L-BFGS refinement. This paper describes the software architecture, algorithmic choices, and a first in-repository baseline to support future scaling studies and ablation experiments.
+    This document presents the current ADAPT-VQE Lightning implementation as an explicit process specification. It focuses on three layers: the molecular and runtime inputs, the mathematical and computational transformations applied to those inputs, and the quantitative outputs produced by training and checkpoint artifacts. The objective is to provide a clear and reproducible map of how this codebase turns chemistry specifications into variational energies and error metrics.
   ],
   authors: (
     (
@@ -19,106 +19,130 @@
   bibliography: bibliography("references.bib"),
 )
 
-= Introduction
+This document is process-oriented and explains three things directly:
+- what inputs are provided,
+- what transformations are applied,
+- what outputs and quantitative results are produced.
 
-Accurate ground-state energy estimation for molecular systems is a central target for quantum algorithms in chemistry. Variational quantum eigensolvers (VQEs) remain among the most practical approaches on near-term hardware because they combine parameterized quantum circuits with classical optimization. However, fixed ansatze can be either too shallow to reach chemical accuracy or too deep to optimize reliably.
+The workflow follows the VQE formulation @peruzzo2014 and ADAPT-VQE ansatz growth @grimsley2019, with Jordan-Wigner qubit mapping @jordan1928 and UCC-style fermionic excitations @romero2018.
 
-ADAPT-VQE addresses this tradeoff by constructing the ansatz iteratively. At each iteration, the method selects the excitation operator with the strongest local energy gradient and only then expands the circuit. This adaptive strategy can reduce unnecessary parameters while preserving a physically motivated operator pool.
+= Inputs
 
-This repository implements ADAPT-VQE with a software stack focused on rapid experimentation:
-- Hamiltonian construction with PennyLane quantum chemistry tools.
-- Quantum simulation on the `lightning.qubit` backend.
-- Optimization orchestration, logging, and checkpointing through PyTorch Lightning.
-- Configuration-driven molecule and training settings using Pydantic models.
+== Molecular and Chemistry Inputs
 
-The first target system is LiH, defined in `molecules/LiH.xyz` and `molecules/LiH.yaml` with STO-3G basis, Jordan-Wigner mapping, and active-space parameters chosen to yield an 8-qubit problem. The intent of this paper is to document this baseline implementation and establish a clear starting point for broader benchmarks.
+The molecule is split across two files:
+- `molecules/LiH.xyz` (geometry): Li at `(0, 0, 0)` and H at `(0, 0, 1.5712755877)` Angstrom.
+- `molecules/LiH.yaml` (chemistry metadata): `charge = 0`, `multiplicity = 1`, `basis_name = sto-3g`, `mapping = jordan_wigner`, `method = dhf`, `active_electrons = 2`, `active_orbitals = 4`.
 
-= Method
+The electronic structure target can be summarized as the ground-state problem
+$E_0 = min_(psi) psi^dagger H psi$,
+where $H$ is the second-quantized molecular Hamiltonian.
 
-== Problem Setup
+== Runtime and Optimization Inputs
 
-Given a second-quantized molecular Hamiltonian $H$, we seek the ground-state energy
-$E_0 = min_(psi) (psi^dagger H psi)$.
-The variational objective is
-$E(theta) = psi(theta)^dagger H psi(theta)$,
-where $psi(theta)$ is prepared from a Hartree-Fock reference state and a parameterized excitation circuit.
+Default runtime parameters (from `src/app/settings.py`) are:
+- `seed = 2002`
+- `vqe.algorithm = "adapt"`
+- `vqe.common.device_name = "lightning.qubit"`
+- `vqe.common.lbfgs_max_iter = 10`
+- `vqe.adapt.max_steps = 1`
+- `vqe.adapt.grad_tol = 3e-3`
+- `vqe.adapt.finite_diff_eps = 1e-3`
+- `vqe.adapt.pretrain_maxiter = 30`
+- `train.max_epochs = 1`
+- `train.steps_per_epoch = 100`
+- `train.optimizer = "lbfgs"`
+- `train.learning_rate = 0.05`
 
-In this codebase, the molecular Hamiltonian is built in `src/app/chem/hamiltonians.py` from a `MoleculeSpec` loaded by `src/app/chem/molecule_specs.py`. The default configuration (`src/app/settings.py`) uses molecule identifier `LiH` and backend device `lightning.qubit`.
+= Transformations
 
-== ADAPT-VQE Ansatz Growth
+== 1) Build the Hamiltonian and Reference State
 
-The operator pool is generated from spin-adapted single and double excitations produced by `qml.qchem.excitations` and mapped to wires with `qml.qchem.excitations_to_wires`. Starting from an empty ansatz, each ADAPT step:
+`src/app/chem/molecule_specs.py` loads and validates molecule data, then `src/app/chem/hamiltonians.py` constructs:
+- qubit Hamiltonian `H_q`,
+- number of qubits `n`,
+- number of active electrons `N_e`,
+- Hartree-Fock bitstring `|phi_HF>` used as reference.
 
-1. Evaluates a finite-difference gradient proxy for every candidate operator.
-2. Selects the operator with maximum absolute gradient.
-3. Appends it to the current ansatz.
-4. Re-optimizes all selected parameters with L-BFGS-B.
+The fermionic Hamiltonian has the standard form
+$H_f = sum_(p q) h_(p q) a_p^dagger a_q + 1 / 2 sum_(p q r s) h_(p q r s) a_p^dagger a_q^dagger a_r a_s$,
+then is mapped (Jordan-Wigner @jordan1928) to
+$H_q = sum_(k=1)^M c_k P_k, quad P_k in {I, X, Y, Z}^n$.
 
-For candidate $i$, the gradient proxy is
-$g_i approx (E(theta, +epsilon e_i) - E(theta, -epsilon e_i)) / (2 epsilon)$,
-with `epsilon = vqe.adapt.finite_diff_eps` (default `1e-3`).
+The exact target energy is computed by sparse diagonalization (`eigsh`, SciPy @virtanen2020scipy):
+$E_"exact" = min_(psi) psi^dagger H_q psi$.
 
-The ADAPT loop is controlled by:
-- `vqe.adapt.max_steps` (default `1` in the current baseline).
-- `vqe.adapt.grad_tol` (default `3e-3`).
-- `vqe.adapt.pretrain_maxiter` (default `30`).
-- Optional pool draining (`vqe.adapt.drain_pool = true`).
+== 2) Build the ADAPT Operator Pool and Select New Operators
 
-== Lightning Training Objective
+`src/app/adapt_vqe_module.py` creates an excitation pool from `qml.qchem.excitations`:
+$P = {tau_i}_(i=1)^(N_"pool")$.
 
-After ansatz construction, the trainable parameters are refined in a PyTorch Lightning module (`src/app/adapt_vqe_module.py`). The loss is
-$L(theta) = |E(theta) - E_0|$,
-where $E_0$ is computed by sparse exact diagonalization (`eigsh`) of the qubit Hamiltonian.
+At each ADAPT step, each candidate is scored with a finite-difference gradient proxy
+$g_i approx (E(theta, +epsilon e_i) - E(theta, -epsilon e_i)) / (2 epsilon)$.
 
-The training loop uses a synthetic step dataset (`src/app/steps_data_module.py`) to execute a configurable number of optimization steps per epoch, with checkpointing handled by Lightning callbacks (`src/app/trainer.py`).
+The selected operator is
+$i^* = arg max_i |g_i|$,
+and the ansatz is extended as
+$U^(t+1)(theta) = exp(theta_(t+1) tau_(i^*)) U^(t)(theta)$.
 
-= Preliminary Baseline
+After insertion, parameters are pre-optimized with L-BFGS-B (SciPy) before Lightning training.
 
-The repository includes an initial single-line summary in `Results/adapt_vqe_results_single_line.csv` for LiH with one ADAPT expansion step. That run reports:
-- Final variational energy: `-7.862843036651611` Hartree.
-- Reference energy: `-7.8644891084057305` Hartree.
-- Absolute gap: approximately `1.65e-3` Hartree.
+== 3) Outer Optimization in Lightning
 
-These numbers should be treated as a first reproducibility checkpoint rather than a final performance claim. The immediate next stage is to increase `vqe.adapt.max_steps`, compare against the fixed UCCSD baseline already implemented in `src/app/uccsd_vqe_module.py`, and characterize convergence versus optimization budget.
+The model objective is the absolute energy gap to the exact solver:
+$L(theta) = |E(theta) - E_"exact"|$.
 
-= Implementation Notes
+Training runs over a synthetic step dataset (`src/app/steps_data_module.py`) so optimization length is controlled by `steps_per_epoch`. Checkpoints and metrics are emitted by callbacks configured in `src/app/trainer.py`.
 
-The runtime flow starts in `src/app/__main__.py`, which instantiates `LightningManager` (`src/app/lightning_manager.py`) and launches training. The manager performs:
+= Outputs
 
-1. deterministic seeding (`seed_everything`),
-2. construction of the synthetic steps data module,
-3. selection of either ADAPT-VQE or UCCSD-VQE based on `vqe.algorithm`,
-4. creation of a PyTorch Lightning trainer with checkpoint and optional W&B logging.
+== Static Outputs Produced During Setup
 
-Within ADAPT-VQE (`src/app/adapt_vqe_module.py`), two optimization phases are used:
+For the default LiH configuration, module construction produces:
+- `n_qubits = 8`
+- `n_electrons = 2`
+- `hf_state = [1, 1, 0, 0, 0, 0, 0, 0]`
+- `Hamiltonian terms M = 105`
+- Hilbert-space dimension `2^8 = 256`
+- ADAPT pool size `N_pool = 15`
+- selected first ADAPT operator: `("double", ((0, 1), (4, 5)))`
+- strongest initial gradient magnitude: `|g_i| = 0.023603439331054688`
 
-1. inner ansatz-growth pre-optimization via SciPy `minimize(..., method: "L-BFGS-B")`,
-2. outer training optimization via torch `LBFGS` in Lightning.
+== Training and Artifact Outputs
 
-This separation allows each new ADAPT expansion to start from locally improved parameters before global refinement across training steps.
+Produced files include:
+- `lightning_logs/version_*/metrics.csv` (per-step logged losses),
+- `lightning_logs/version_*/checkpoints/*.ckpt` (model states),
+- optional W&B run directories under `wandb/` and `lightning_template_vqe/`.
 
-= Reproducibility and Configuration
+== Numerical Results from Repository Checkpoints
 
-Experiment behavior is defined by the typed settings model in `src/app/settings.py`. For the default baseline:
+Reference exact value from the stored checkpoints:
+- `E_exact = -7.8644891084057305` Hartree.
 
-- `seed = 2002`,
-- `vqe.algorithm = "adapt"`,
-- `train.max_epochs = 1`,
-- `train.steps_per_epoch = 100`,
-- `vqe.adapt.max_steps = 1`.
+Initial (Hartree-Fock / zero-parameter) value for the selected one-operator ADAPT ansatz:
+- `E_HF = -7.86266565322876` Hartree,
+- `|E_HF - E_exact| = 0.001823455176967137` Hartree.
 
-Molecular geometry and chemistry metadata are split between `molecules/LiH.xyz` and `molecules/LiH.yaml`, then merged through `load_molecule_spec` in `src/app/chem/molecule_specs.py`. This decouples structure from algorithmic hyperparameters and keeps benchmark definitions explicit.
+Checkpointed ADAPT values:
+- `lightning_logs/version_0/checkpoints/vqe-step=00002-train_loss=0.001717.ckpt`:
+  `theta = 0.004659244527978341`, `E = -7.862771987915039`,
+  `|E - E_exact| = 0.001717120490677182` Hartree.
+- `lightning_logs/version_1/checkpoints/vqe-step=00003-train_loss=0.001646.ckpt`:
+  `theta = 0.00796484071212286`, `E = -7.862843036651611`,
+  `|E - E_exact| = 0.0016460717541191272` Hartree.
 
-= Limitations and Next Steps
+So, for this current one-step ADAPT setup, optimization improves the energy gap relative to the HF starting point, but does not yet reach chemical-accuracy scale. This is consistent with ADAPT-VQE behavior when ansatz depth is intentionally limited @grimsley2019.
 
-The current implementation is intentionally minimal and provides a stable baseline rather than a fully tuned ADAPT-VQE study. Key limitations are:
+= Process Summary
 
-- one ADAPT growth step by default,
-- finite-difference gradient screening for pool selection (cost scales with pool size),
-- CPU-oriented default trainer settings.
+End-to-end, the pipeline is:
+1. Load geometry + chemistry metadata.
+2. Build molecular Hamiltonian and HF state.
+3. Map to qubits and compute exact reference energy.
+4. Build ADAPT pool, score candidates, append best operator.
+5. Pre-optimize with L-BFGS-B.
+6. Train remaining parameters with Lightning/LBFGS on step-index data.
+7. Emit energies, losses, checkpoints, and optional experiment logs.
 
-Near-term improvements include larger ADAPT depths, alternative operator ranking heuristics, and side-by-side convergence curves against the existing UCCSD module under matched optimization budgets.
-
-= Conclusion
-
-This repository delivers a concise, reproducible ADAPT-VQE baseline for LiH using PennyLane Lightning and PyTorch Lightning. The code organizes chemistry specification, ansatz construction, and training orchestration into separate modules, enabling controlled experiments and straightforward extension to additional molecules and algorithmic variants.
+This format is intended to make future updates straightforward: each new molecule or optimization setting can be documented by updating the same input/process/output slots.

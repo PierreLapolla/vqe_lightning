@@ -11,13 +11,13 @@ def get_trainer(settings: AppSettings) -> Trainer:
 
     callbacks.append(
         ModelCheckpoint(
-            monitor="train_loss",
+            monitor="energy_epoch",
             mode="min",
             save_top_k=1,
             save_last=True,
-            every_n_train_steps=1,
-            save_on_train_epoch_end=False,
-            filename="vqe-{step:05d}-{train_loss:.6f}",
+            every_n_epochs=1,
+            save_on_train_epoch_end=True,
+            filename="vqe-{epoch:03d}-{energy_epoch:.6f}",
             verbose=settings.train.callback_verbose,
         )
     )
