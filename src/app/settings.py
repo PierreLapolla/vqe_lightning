@@ -13,7 +13,7 @@ class MoleculeFilesCfg(BaseModel):
 
 
 class VQECommonCfg(BaseModel):
-    device_name: str = "lightning.qubit"
+    device_name: Literal["lightning.qubit", "lightning.gpu"] = "lightning.qubit"
     molecule: MoleculeFilesCfg = MoleculeFilesCfg()
     lbfgs_max_iter: PositiveInt = 10
 
